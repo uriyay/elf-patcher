@@ -24,6 +24,7 @@ Problems
 Currently there is no support in:
 1. calls and jumps instructions relocations, that means you cannot hook calls and jumps
 2. patcher.py:pad_nops() will pad only with one byte nop
+3. examples/patches/run_sh fails to compile
 
 Future Goals
 -------------
