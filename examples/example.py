@@ -1,3 +1,4 @@
+import os
 import patcher
 import arch_x86
 
@@ -5,8 +6,9 @@ def main():
     arch = arch_x86.ArchX86(is_64_bit=True)
     #enable tracer
     patcher.tracer.enable()
-    p = patcher.Patcher('./targets/printf/main', arch)
-    patch_filename =  './patches/printf/printf'
+    my_dir = os.path.dirname(__file__)
+    p = patcher.Patcher(my_dir + '/targets/printf/main', arch)
+    patch_filename =  my_dir + '/patches/printf/printf'
     hook_addr = 0x400540
 
     leech_addr = 0x40063c

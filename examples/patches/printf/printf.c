@@ -1,5 +1,5 @@
 int main(int argc, const char *argv[])
 {
-    puts("hoooo daemon!\n");
+    puts("hello hello\n");
     return 0;
 }
