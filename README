@@ -1,7 +1,7 @@
 Preface
 --------
 elf-patcher is a multi-arch patcher, it uses binutils tools for building the hooks.
-This tool will patch an elf by creating a leech on a specific instruction which jumps eventually to a code in c.
+This tool will patch an elf by creating a hook on a specific instruction which jumps eventually to a code in c.
 see examples/example.py and patcher.py for more details.
 
 Files
