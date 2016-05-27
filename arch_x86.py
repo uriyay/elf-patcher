@@ -79,4 +79,4 @@ class ArchX86(arch.Arch):
                 lds_config.symbols[symbol_name] = symbol_addr
         lds_config.symbols['my_text_address'] = new_address
         #reassemble code to new_address with ld script
-        return self.assemble(code, new_address, preserve_output=True, lds_config=lds_config)
+        return self.assemble(code, new_address, preserve_output=False, lds_config=lds_config)
