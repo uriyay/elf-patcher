@@ -1,82 +1,28 @@
 import subprocess
 import re
+import copy
 
 from Logger import Tracer
+from executable import Section, Executable
 
 tracer = Tracer.PrintTracer()
 
-class Section(object):
-    def __init__(self, name, virtual_address, size, file_offset, data):
-        self.name = name
-        self.virtual_address = virtual_address
-        self.size = size
-        self.file_offset = file_offset
-        self.data = data
-
-class Executable(object):
-    '''
-    Represents an executable file (elf, mostly).
-    Its stores sections and make it easy to modify the executable sections data.
-    '''
-    def __init__(self, filename, arch_obj):
-        self.filename = filename
-        self.data = open(filename, 'rb').read()
-        self.objdump_name = arch_obj.objdump_name
-        self.sections = self.get_sections()
-
-    def get_sections(self):
-        '''
-        Returns: list of Section's
-        '''
-        command = '%s -h %s' % (self.objdump_name,
-                                self.filename)
-        objdump_command = subprocess.Popen(command.split(' '),
-                                           stdout=subprocess.PIPE)
-        objdump_output = objdump_command.stdout.read()
-        sections = []
-        for line in objdump_output.split('\n'):
-            if re.search(' *\d+ +.* [0-9a-f]+ +[0-9a-f]+ +[0-9a-f]+ +[0-9a-f]+ + .*', line):
-                parts = re.split(' +', line)
-                sect_name = parts[2]
-                virtual_address, size, file_offset = (int(x, 16) for x in [parts[4],
-                                                                           parts[3],
-                                                                           parts[6]])
-                data = self.data[file_offset : file_offset + size]
-                sections.append(Section(sect_name, virtual_address, size, file_offset, data))
-        return sections
-
-    def address_to_offset(self, address):
-        for sect in self.sections:
-            if address >= sect.virtual_address and address < (sect.virtual_address + sect.size):
-                return sect.file_offset + (address - sect.virtual_address)
-        return None
-
-    def get_data(self, start_address=None, end_address=None):
-        if start_address is None:
-            start_address = self.sections[0].virtual_address
-        if end_address is None:
-            end_address = self.sections[-1].virtual_address
-
-        assert start_address <= end_address
-
-        offset = self.address_to_offset(start_address)
-        assert offset is not None
-        size = end_address - start_address
-        return self.data[offset : offset + size]
-
-    def set_data(self, start_address, data):
-        if start_address is None:
-            start_address = self.sections[0].virtual_address
-
-        offset = self.address_to_offset(start_address)
-        assert offset is not None
-        self.data = self.data[:offset] + data + self.data[offset + len(data):]
-
-    def build(self):
-        return self.data
-
+#Exceptions
 class PaddingError(Exception):
     pass
+
+###
+
+class PatchEntry(object):
+    def __init__(self, virtual_address, data, patch_name, original_data=None, description=None):
+        self.virtual_address = virtual_address
+        self.data = data
+        self.size = len(data)
+        self.patch_name = patch_name
+        if original_data is not None:
+            assert self.size == len(original_data)
+        self.original_data = original_data
+        self.description = description
 
 class Patcher(object):
     def __init__(self, binary_filename, arch_obj):
@@ -109,7 +55,7 @@ class Patcher(object):
         tracer.trace('length of new data after padding is %d, new_data = %s' % (len(data), data.encode('hex')))
         return data
 
-    def hook(self,
+    def get_patch(self,
              #hook
              hook_address,
              padding_modulu,
@@ -118,9 +64,7 @@ class Patcher(object):
              hook_data_address,
              #hook data
              hook_filename,
-             hook_sections_names,
-             #output
-             output_filepath):
+             hook_sections_names):
         '''
         This function will patch self.binary, it will generate a branch to a hook glue:
         a place where registers backup, jump to your hook code, load registers load, hook-overriden code and jump back after hook.
@@ -129,8 +73,8 @@ class Patcher(object):
         param hook_glue_address: where the hook glue will be
         param hook_data_address: where your hook code will seat
         param hook_filename: your hook code file name
-        hook_sections_names: which sections from your hook code elf will be injected
-        output_filepath: where the patched target will be stored
+        param hook_sections_names: which sections from your hook code elf will be injected
+        return value: patch_table - a list of PatchEntry's
         '''
 
         #get branch to hook_glue
@@ -139,10 +83,10 @@ class Patcher(object):
         branch = self.arch.get_branch(hook_address, hook_glue_address)
         branch = self.pad_nops(branch, padding_modulu)
         tracer.trace('branch = %s, len = %d' % (branch.encode('hex'), len(branch)))
+
         #get overriden data
         overriden_data_size = len(branch)
-        overriden_data = self.binary.get_data(hook_address,
-                            hook_address + overriden_data_size)
+        overriden_data = self.binary.get_data(hook_address, overriden_data_size)
         overriden_data_disas = self.arch.disas(self.binary.filename,
                 hook_address, hook_address + overriden_data_size)
         tracer.trace('overriden_data = %s, length = %d\n%s\n' % (overriden_data.encode('hex'),
@@ -171,15 +115,77 @@ class Patcher(object):
         tracer.trace('hook_glue: %s, len - %d, at address - 0x%x, ends at - 0x%x' % (hook_glue.encode('hex'),
                 len(hook_glue), hook_glue_address, hook_glue_address + len(hook_glue)))
 
-        #put hook data
+        #prepare patch table
+        patch_table = []
+
         hook_exe = Executable(hook_filename, self.arch)
         for sect in hook_exe.sections:
-            self.binary.set_data(sect.virtual_address, sect.data)
+            if sect.name in hook_sections_names:
+                patch_table.append(PatchEntry(sect.virtual_address, sect.data, 'hook_section_%s' % (sect.name),
+                                              self.binary.get_data(sect.virtual_address, len(sect.data)), 'hook section'))
 
-        #put hook_glue
-        self.binary.set_data(hook_glue_address, hook_glue)
+        patch_table.append(PatchEntry(hook_glue_address, hook_glue, 'hook_glue', self.binary.get_data(hook_glue_address, len(hook_glue)),
+                                      'hook glue'))
 
-        #put hook
-        self.binary.set_data(hook_address, branch)
+        patch_table.append(PatchEntry(hook_address, branch, 'branch', overriden_data, 'branch to hook_glue'))
 
-        file(output_filepath, 'wb').write(self.binary.build())
+        return patch_table
+
+    def write_binary_to_file(self, output_filepath):
+        with file(output_filepath, 'wb') as f:
+            f.write(self.binary.build())
+
+    def patch_binary(self, patch_table, output_filepath):
+        '''
+        This function will apply patch table on self.binary and will save it to output_filepath
+        Note that this function will change self.binary
+        if you want to undo the operation of this function - call undo_patch_binary()
+        param patch_table: a list of PatchEntry's
+        param output_filepath: a filepath to write the patched binary to
+        '''
+        for patch_entry in patch_table:
+            tracer.trace('pasting patch %s - %s' % (patch_entry.patch_name, patch_entry.description))
+            self.binary.set_data(patch_entry.virtual_address, patch_entry.data)
+
+        self.write_binary_to_file(output_filepath)
+
+    def create_undo_table(self, patch_table):
+        '''
+        patch_entry.original_data will be patch data,
+        and patch_entry.data will be original_data
+        '''
+        undo_table = copy.deepcopy(patch_table)
+        for undo_entry in undo_table:
+            undo_entry.original_data, undo_entry.data = undo_entry.data, undo_entry.original_data
+        return undo_table
+
+    def undo_patch_binary(self, patch_table):
+        '''
+        See doc of patch_binary
+        '''
+        for undo_entry in self.create_undo_table(patch_table):
+            tracer.trace('undo %s - %s' %  (undo_entry.patch_name, undo_entry.description))
+            self.binary.set_data(undo_entry.virtual_address, undo_entry.data)
+
+    def hot_patch(self, patch_table, hot_patcher, should_read_original_data=True):
+        '''
+        This function will apply patch table by hot patching with a hot_patcher object.
+        Note that this function will change a running thing (can be a process or what-ever you need it to be),
+        if you want to undo the operation of this function - call undo_hot_patch()
+        Note2: if you want to hot patch slowly then pass a partial patch_table (the same for undo_hot_patch)
+        param patch_table: a list of PatchEntry's
+        param hot_patcher: an object of a class that inherits HotPatcher (which is abstract class)
+        param should_read_original_data: if you pass True - the original data will be read before patching
+        '''
+        for patch_entry in patch_table:
+            tracer.trace('patch %s - %s' % (patch_entry.patch_name, patch_entry.description))
+            if verify_original_data:
+                tracer.trace('reading original data')
+                patch_entry.original_data = hot_patcher.read(patch_entry.virtual_address, patch_entry.size)
+            hot_patcher.write(patch_entry.virtual_address, patch_entry.data)
+
+    def undo_hot_patch(self, patch_table, hot_patcher):
+        for undo_entry in self.create_undo_table(patch_table):
+            tracer.trace('hot undo %s - %s' % (undo_entry.patch_name, undo_entry.description))
+            hot_patcher.write(undo_entry.virtual_address, undo_entry.data)
+

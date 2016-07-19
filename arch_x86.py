@@ -6,11 +6,6 @@ from Numbers import converter
 
 import arch
 
-class LdsConfig(object):
-    symbols = {}
-    hook_sections = {}
-    memory_layout = []
-
 class ArchX86(arch.Arch):
     def __init__(self, is_64_bit=False):
         super(ArchX86, self).__init__(binutils_prefix='')
@@ -68,15 +63,4 @@ class ArchX86(arch.Arch):
                 converter.to_unsigned_int(relative_address))
 
     def relocate(self, code, new_address):
-        #get branches and loops
-        lds_config = LdsConfig()
-        code_lines = code.split('\n')
-        for line in code_lines:
-            if re.search('(j[a-z][a-z])|(call)', line):
-                line = line.strip()
-                symbol_name = tempfile.mktemp(prefix='', dir='')
-                symbol_addr = int(line.split(' ')[-1], 16)
-                lds_config.symbols[symbol_name] = symbol_addr
-        lds_config.symbols['my_text_address'] = new_address
-        #reassemble code to new_address with ld script
-        return self.assemble(code, new_address, preserve_output=False, lds_config=lds_config)
+        return self._relocate(code, new_address, '(j[a-z][a-z])|(call)')

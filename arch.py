@@ -9,6 +9,11 @@ import generate_lds
 
 tracer = Tracer.PrintTracer()
 
+class LdsConfig(object):
+    symbols = {}
+    hook_sections = {}
+    memory_layout = []
+
 class Arch(object):
     def __init__(self, binutils_prefix):
         '''
@@ -115,3 +120,19 @@ class Arch(object):
 
     def get_call(self, source_address, destination_address):
         raise NotImplemented()
+
+    def _relocate(self, code, new_address, branch_pattern):
+        #get branches and loops
+        lds_config = LdsConfig()
+        code_lines = code.split('\n')
+        symbol_name = '__sym_'
+        for line in code_lines:
+            if re.search(branch_pattern, line):
+                line = line.strip()
+                symbol_addr_string = line.split(' ')[-1]
+                symbol_name = symbol_name + symbol_addr_string
+                symbol_addr = int(symbol_addr_string, 16)
+                lds_config.symbols[symbol_name] = symbol_addr
+        lds_config.symbols['my_text_address'] = new_address
+        #reassemble code to new_address with ld script
+        return self.assemble(code, new_address, preserve_output=False, lds_config=lds_config)
