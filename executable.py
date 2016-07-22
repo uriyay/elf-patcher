@@ -1,4 +1,19 @@
-class Section(object):
+import re
+import subprocess
+
+class FindSymbolError(Exception):
+    pass
+
+class FindSymbolTooManyMatches(Exception):
+    pass
+
+class FindSectionError(Exception):
+    pass
+
+class FindSectionTooManyMatches(Exception):
+    pass
+
+class Symbol(object):
     def __init__(self, name, virtual_address, size, file_offset, data):
         '''
         param name: section name
@@ -13,6 +28,12 @@ class Section(object):
         self.file_offset = file_offset
         self.data = data
 
+    def __str__(self):
+        return '%s: virtual_address=0x%x, file_offset=0x%x, size=0x%x' % (self.name, self.virtual_address, self.file_offset, self.size)
+
+class Section(Symbol):
+    pass
+
 class Executable(object):
     '''
     Represents an executable file (elf, mostly).
@@ -26,7 +47,9 @@ class Executable(object):
         self.filename = filename
         self.data = open(filename, 'rb').read()
         self.objdump_name = arch_obj.objdump_name
+        self.nm_name = arch_obj.nm_name
         self.sections = self.get_sections()
+        self.symbols = self.get_symbols()
 
     def get_sections(self):
         '''
@@ -48,6 +71,44 @@ class Executable(object):
                 data = self.data[file_offset : file_offset + size]
                 sections.append(Section(sect_name, virtual_address, size, file_offset, data))
         return sections
+
+    def get_symbols(self):
+        '''
+        This function will return the symbols that appears in the elf
+        '''
+        command = '%s -S %s' % (self.nm_name,
+                                self.filename)
+        nm_command = subprocess.Popen(command.split(' '),
+                                           stdout=subprocess.PIPE)
+        nm_output = nm_command.stdout.read()
+        symbols = []
+        for line in nm_output.split('\n'):
+            if re.search('[0-9a-f]+ [0-9a-f]+ [a-zA-Z] [a-zA-Z]+', line):
+                parts = re.split(' +', line)
+                sym_name = parts[3]
+                virtual_address, size = (int(x, 16) for x in [parts[0], parts[1]])
+                file_offset = self.address_to_offset(virtual_address)
+                data = self.data[file_offset : file_offset + size]
+                symbols.append(Symbol(sym_name, virtual_address, size, file_offset, data))
+        return symbols
+
+    def get_symbol_by_name(self, name):
+        matches = [x for x in self.symbols if x.name == name]
+        matches_count = len(matches)
+        if matches_count < 1:
+            raise FindSymbolError('Cannot find symbol %s' % (name))
+        elif matches_count > 1:
+            raise FindSymbolTooManyMatches('There is more than one match to %s symbol' % (name))
+        return matches[0]
+
+    def get_section_by_name(self, name):
+        matches = [x for x in self.sections if x.name == name]
+        matches_count = len(matches)
+        if matches_count < 1:
+            raise FindSectionError('Cannot find section %s' % (name))
+        elif matches_count > 1:
+            raise FindSectionTooManyMatches('There is more than one match to %s section' % (name))
+        return matches[0]
 
     def address_to_offset(self, address):
         for sect in self.sections:

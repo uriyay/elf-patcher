@@ -6,10 +6,11 @@ from Numbers import converter
 
 import arch
 
-class ArchX86(arch.Arch):
-    def __init__(self, is_64_bit=False):
-        super(ArchX86, self).__init__(binutils_prefix='')
+class Arch(arch.Arch):
+    def __init__(self, is_64_bit=True):
+        super(Arch, self).__init__(binutils_prefix='')
         self.is_64_bit = is_64_bit
+        self.padding_modulu = 5
         if is_64_bit:
             self.stack_pointer = 'rsp'
             self.base_pointer = 'rbp'
@@ -63,4 +64,4 @@ class ArchX86(arch.Arch):
                 converter.to_unsigned_int(relative_address))
 
     def relocate(self, code, new_address):
-        return self._relocate(code, new_address, '(j[a-z][a-z])|(call)')
+        return self._relocate(code, new_address, '(j[a-z][a-z])|(j[a-z][a-z]q)|(call)')

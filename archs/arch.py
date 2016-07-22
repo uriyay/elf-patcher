@@ -23,6 +23,7 @@ class Arch(object):
         self.objcopy_name = binutils_prefix + 'objcopy'
         self.linker_name = binutils_prefix + 'ld'
         self.objdump_name = binutils_prefix + 'objdump'
+        self.nm_name = binutils_prefix + 'nm'
 
     def assemble(self,code, address=None,
             preserve_output=False, lds_config=None):
@@ -133,6 +134,7 @@ class Arch(object):
                 symbol_name = symbol_name + symbol_addr_string
                 symbol_addr = int(symbol_addr_string, 16)
                 lds_config.symbols[symbol_name] = symbol_addr
+
         lds_config.symbols['my_text_address'] = new_address
         #reassemble code to new_address with ld script
         return self.assemble(code, new_address, preserve_output=False, lds_config=lds_config)

@@ -6,9 +6,10 @@ from Numbers import converter
 
 import arch
 
-class ArchArm32LittleEndian(arch.Arch):
-    def __init__(self, is_64_bit=False):
-        super(ArchArm32LittleEndian, self).__init__(binutils_prefix='')
+class Arch(arch.Arch):
+    def __init__(self, binutils_prefix):
+        super(Arch, self).__init__(binutils_prefix)
+        self.padding_modulu = 4
 
     def get_branch(self, source_address, to_address, should_link=False):
         offset24 = converter.to_unsigned((to_address - source_address) >> 1)
