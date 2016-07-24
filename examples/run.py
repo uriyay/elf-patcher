@@ -12,12 +12,13 @@ my_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(my_dir, '..'))
 
 import patcher
-from archs import arch_x86, arch_arm
+from archs import arch_x86, arch_arm, arch_mips
 
 ARCHS = {
             'x86' : arch_x86.Arch(is_64_bit=False),
             'x86_64' : arch_x86.Arch(is_64_bit=True),
             'arm' : arch_arm.Arch(binutils_prefix='arm-none-linux-gnueabi-'),
+            'mips32el' : arch_mips.Arch(binutils_prefix='mips-sde-elf-'),
         }
 
 PATCHES = {
@@ -31,7 +32,7 @@ PATCHES = {
 
 TARGETS = {
             'printf' : {'filename' : os.path.join(my_dir, 'targets/printf/main'),
-                        'hook_address' : 0x4006c9,
+                        'hook_address' : 0x4006c4,
                         'hook_data_addr' : 'nothing',
                        },
             #/bin/ls ?
@@ -45,27 +46,26 @@ def get_config_from_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument('--simple', help='test simple case - x86_64 taregt printf with patch of run_sh',
                         action="store_true", default=False)
-    parser.add_argument('arch', help='which arch you want to use')
-    parser.add_argument('target', help='which target to use')
-    parser.add_argument('patch', help='which patch to use')
-    parser.add_argument('output_filename', help='where to write the result', default=None)
+    parser.add_argument('-a', '--arch', help='which arch you want to use %s' % (str(ARCHS.keys())))
+    parser.add_argument('-t', '--target', help='which target to use %s' % (str(TARGETS.keys())))
+    parser.add_argument('-p', '--patch', help='which patch to use %s' % (str(PATCHES.keys())))
+    parser.add_argument('-o', '--output', help='where to write the result')
     args = parser.parse_args()
 
     if args.simple:
-        print 'here!!'
         if '64' in platform.architecture()[0]:
             arch = ARCHS['x86_64']
         else:
             arch = ARCHS['x86']
         target = TARGETS['printf']
         patch = PATCHES['run_sh']
-        return arch, target, patch, None #None for output_filename
+        return arch, target, patch, None #None for output
 
     assert args.arch in ARCHS, 'arch %s not in possible archs = %s' % (args.arch, ARCHS.keys())
     assert args.target in TARGETS, 'target %s not in possible targets = %s' % (args.target, TARGETS.keys())
     assert args.patch in PATCHES, 'patch  %s not in possibles patches = %s' % (args.patch, PATCHES.keys())
 
-    return ARCHS[args.arch], TARGETS[args.target], PATCHES[args.patch], args.output_filename
+    return ARCHS[args.arch], TARGETS[args.target], PATCHES[args.patch], args.output
 
 def main():
     arch, target, patch, output_filename = get_config_from_cli()

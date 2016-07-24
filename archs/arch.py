@@ -30,6 +30,8 @@ class Arch(object):
         if preserve_output:
             tracer_state = tracer.is_trace_on
             tracer.enable()
+        #add newline to code
+        code += '\n'
         tracer.trace('code = %s' % (code))
         object_name = tempfile.mktemp(prefix='obj', suffix='.o')
         elf_name = tempfile.mktemp(prefix='elf', suffix='.out')
@@ -45,10 +47,10 @@ class Arch(object):
         #linkage
         if address is None:
             address = 0
-        command = '%s -Ttext 0x%x -o %s %s' % (self.linker_name,
-                                                 address,
-                                                 elf_name,
-                                                 object_name)
+        command = '%s --defsym=_start=0x0 -Ttext 0x%x -o %s %s' % (self.linker_name,
+                                                                   address,
+                                                                   elf_name,
+                                                                   object_name)
         if lds_config is not None:
             lds_script = generate_lds.generate_lds(lds_config.symbols,
                     lds_config.hook_sections)

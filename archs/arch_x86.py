@@ -14,8 +14,8 @@ class Arch(arch.Arch):
         if is_64_bit:
             self.stack_pointer = 'rsp'
             self.base_pointer = 'rbp'
-            self.registers = ['rax', 'rbx', 'rcx']
-            #in x86 64 bit you must push/pop only 64 bit
+            self.registers = ['rax', 'rbx', 'rcx', 'rdx', 'rsi', 'rdi']
+            #in x86 64 bit you must push/pop 64 bit only
             self.push = 'pushq'
             self.pop = 'popq'
             self.jmp = 'jmpq'
@@ -23,11 +23,12 @@ class Arch(arch.Arch):
         else:
             self.stack_pointer = 'esp'
             self.base_pointer = 'ebp'
-            self.registers = ['eax', 'ebx', 'ecx']
+            self.registers = ['eax', 'ebx', 'ecx', 'edx', 'esi', 'edi']
             self.push = 'push'
             self.pop = 'pop'
             self.jmp = 'jmp'
             self.call = 'call'
+        self.registers += [self.base_pointer, self.stack_pointer]
 
     def get_branch(self, source_address, to_address):
         relative_address = to_address - source_address - 5
