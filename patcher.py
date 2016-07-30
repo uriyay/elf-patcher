@@ -11,6 +11,13 @@ tracer = Tracer.PrintTracer()
 class PaddingError(Exception):
     pass
 
+class FailedToGetDisasMatch(Exception):
+    pass
+
+###
+#Constants
+PADDING_MULTIPLE = 20
+
 ###
 
 class PatchEntry(object):
@@ -20,7 +27,7 @@ class PatchEntry(object):
         self.size = len(data)
         self.patch_name = patch_name
         if original_data is not None:
-            assert self.size == len(original_data)
+            assert self.size == len(original_data), '%d != %d' % (self.size, len(original_data))
         self.original_data = original_data
         self.description = description
 
@@ -60,10 +67,66 @@ class Patcher(object):
         tracer.trace('length of new data after padding is %d, new_data = %s' % (len(data), data.encode('hex')))
         return data
 
+    def get_branch_data(self, source_address, dest_address):
+        '''
+        Returns: (branch_data, overriden_dat, overriden_data_disas)
+        '''
+        #get branch to hook_glue
+        branch = self.arch.get_branch(source_address, dest_address)
+
+        #get overriden data
+        branch_size = len(branch)
+        overriden_data_disas_to_compare = self.arch.disas(self.binary.filename,
+                source_address, source_address + branch_size + self.arch.padding_modulu * PADDING_MULTIPLE)
+        got_disas_match = False
+        for i in xrange(PADDING_MULTIPLE):
+            overriden_data_disas = self.arch.disas(self.binary.filename,
+                    source_address, source_address + branch_size + self.arch.padding_modulu * i)
+            if overriden_data_disas in overriden_data_disas_to_compare:
+                got_disas_match = True
+                break
+        if not got_disas_match:
+            raise FailedToGetDisasMatch('Failed to got disas match of overriden_data_disas in overriden_data_disas_to_compare')
+        branch = branch + self.arch.get_nop() * (self.arch.padding_modulu * i)
+        overriden_data = self.binary.get_data(source_address, len(branch))
+
+        tracer.trace('branch = %s, len = %d' % (branch.encode('hex'), len(branch)))
+        tracer.trace('overriden_data = %s, length = %d\n%s\n' % (overriden_data.encode('hex'),
+                len(overriden_data), overriden_data_disas))
+
+        return branch, overriden_data, overriden_data_disas
+    
+    def get_hook_glue_data(self, hook_exe, hook_symbol_to_jump_to, overriden_data_disas, hook_glue_address, return_address):
+        '''
+        Returns hook_glue
+        '''
+        #get hook_glue
+        registers = self.arch.registers
+        #dump registers
+        hook_glue = self.arch.get_registers_dumper(registers)
+        #nop padding
+        hook_glue = self.pad_nops(hook_glue, self.arch.padding_modulu)
+        #call hook_data
+        hook_glue += self.arch.get_call(hook_glue_address + len(hook_glue),
+                                        hook_exe.get_symbol_by_name(hook_symbol_to_jump_to).virtual_address)
+        #load back registers
+        hook_glue += self.arch.get_registers_loader(registers)
+        #do original code
+        relocated_overriden_data = self.arch.relocate(overriden_data_disas,
+                    hook_glue_address + len(hook_glue))
+        tracer.trace('relocated_overriden_data - %s, len - %d, address - 0x%x' % (relocated_overriden_data.encode('hex'),
+                len(relocated_overriden_data), hook_glue_address + len(hook_glue)))
+        hook_glue += relocated_overriden_data
+        #jump back after hook
+        hook_glue += self.arch.get_branch(hook_glue_address + len(hook_glue), return_address)
+        tracer.trace('hook_glue: %s, len - %d, at address - 0x%x, ends at - 0x%x' % (hook_glue.encode('hex'),
+                len(hook_glue), hook_glue_address, hook_glue_address + len(hook_glue)))
+
+        return hook_glue
+
     def get_patch(self,
              #hook
              hook_address,
-             padding_modulu,
              #hook glue
              hook_glue_address,
              #hook data
@@ -74,7 +137,6 @@ class Patcher(object):
         This function will patch self.binary, it will generate a branch to a hook glue:
         a place where registers backup, jump to your hook code, load registers load, hook-overriden code and jump back after hook.
         param hook_address: the branch address in the target executable to jump from
-        param padding_modulu: see pad_nops(), sometimes you must put nops after branch (like in MIPS)
         param hook_glue_address: where the hook glue will be
         param hook_symbol_to_jump_to: the name of symbol in hook_filename to jump to
         param hook_filename: your hook code file name
@@ -89,41 +151,12 @@ class Patcher(object):
             self.binary.filename, hook_address, hook_filename, hook_glue_address, hook_symbol_to_jump_to))
         hook_exe = Executable(hook_filename, self.arch)
 
-        #get branch to hook_glue
-        branch = self.arch.get_branch(hook_address, hook_glue_address)
-        branch = self.pad_nops(branch, padding_modulu)
-        tracer.trace('branch = %s, len = %d' % (branch.encode('hex'), len(branch)))
-
-        #get overriden data
-        overriden_data_size = len(branch)
-        overriden_data = self.binary.get_data(hook_address, overriden_data_size)
-        overriden_data_disas = self.arch.disas(self.binary.filename,
-                hook_address, hook_address + overriden_data_size)
-        tracer.trace('overriden_data = %s, length = %d\n%s\n' % (overriden_data.encode('hex'),
-                len(overriden_data), overriden_data_disas))
-        
-        #get hook_glue
-        registers = self.arch.registers
-        #dump registers
-        hook_glue = self.arch.get_registers_dumper(registers)
-        #nop padding
-        hook_glue = self.pad_nops(hook_glue, padding_modulu)
-        #call hook_data
-        hook_glue += self.arch.get_call(hook_glue_address + len(hook_glue),
-                                        hook_exe.get_symbol_by_name(hook_symbol_to_jump_to).virtual_address)
-        #load back registers
-        hook_glue += self.arch.get_registers_loader(registers)
-        #do original code
-        relocated_overriden_data = self.arch.relocate(overriden_data_disas,
-                    hook_glue_address + len(hook_glue))
-        tracer.trace('relocated_overriden_data - %s, len - %d, address - 0x%x' % (relocated_overriden_data.encode('hex'),
-                len(relocated_overriden_data), hook_glue_address + len(hook_glue)))
-        hook_glue += relocated_overriden_data
-        #jump back after hook
-        hook_glue += self.arch.get_branch(hook_glue_address + len(hook_glue),
-                hook_address + overriden_data_size)
-        tracer.trace('hook_glue: %s, len - %d, at address - 0x%x, ends at - 0x%x' % (hook_glue.encode('hex'),
-                len(hook_glue), hook_glue_address, hook_glue_address + len(hook_glue)))
+        branch, overriden_data, overriden_data_disas = self.get_branch_data(hook_address, hook_glue_address)
+        hook_glue = self.get_hook_glue_data(hook_exe,
+                                            hook_symbol_to_jump_to,
+                                            overriden_data_disas,
+                                            hook_glue_address,
+                                            hook_address + len(branch))
 
         #prepare patch table
         patch_table = []

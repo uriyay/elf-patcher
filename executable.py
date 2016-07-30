@@ -1,5 +1,11 @@
 import re
+import struct
 import subprocess
+
+from StringIO import StringIO
+from elftools.elf.elffile import ELFFile
+
+from Numbers import converter
 
 class FindSymbolError(Exception):
     pass
@@ -46,8 +52,8 @@ class Executable(object):
         '''
         self.filename = filename
         self.data = open(filename, 'rb').read()
-        self.objdump_name = arch_obj.objdump_name
-        self.nm_name = arch_obj.nm_name
+        self._elffile = ELFFile(StringIO(self.data))
+        self.arch = arch_obj
         self.sections = self.get_sections()
         self.symbols = self.get_symbols()
 
@@ -55,40 +61,56 @@ class Executable(object):
         '''
         Returns: list of Section's
         '''
-        command = '%s -h %s' % (self.objdump_name,
-                                self.filename)
-        objdump_command = subprocess.Popen(command.split(' '),
-                                           stdout=subprocess.PIPE)
-        objdump_output = objdump_command.stdout.read()
         sections = []
-        for line in objdump_output.split('\n'):
-            if re.search(' *\d+ +.* [0-9a-f]+ +[0-9a-f]+ +[0-9a-f]+ +[0-9a-f]+ + .*', line):
-                parts = re.split(' +', line)
-                sect_name = parts[2]
-                virtual_address, size, file_offset = (int(x, 16) for x in [parts[4],
-                                                                           parts[3],
-                                                                           parts[6]])
-                data = self.data[file_offset : file_offset + size]
-                sections.append(Section(sect_name, virtual_address, size, file_offset, data))
+        for sect in self._elffile.iter_sections():
+            sect_name = sect.name
+            virtual_address = sect.header.sh_addr
+            size = sect.header.sh_size
+            file_offset = sect.header.sh_offset
+            data = self.data[file_offset : file_offset + size]
+            sections.append(Section(sect_name, virtual_address, size, file_offset, data))
         return sections
 
     def get_symbols(self):
         '''
         This function will return the symbols that appears in the elf
         '''
-        command = '%s -S %s' % (self.nm_name,
-                                self.filename)
-        nm_command = subprocess.Popen(command.split(' '),
-                                           stdout=subprocess.PIPE)
-        nm_output = nm_command.stdout.read()
         symbols = []
-        for line in nm_output.split('\n'):
-            if re.search('[0-9a-f]+ [0-9a-f]+ [a-zA-Z] [a-zA-Z]+', line):
-                parts = re.split(' +', line)
-                sym_name = parts[3]
-                virtual_address, size = (int(x, 16) for x in [parts[0], parts[1]])
+        symtab = self._elffile.get_section_by_name('.symtab')
+        dynsym = self._elffile.get_section_by_name('.dynsym')
+        rela_plt = self._elffile.get_section_by_name('.rela.plt')
+        if symtab is not None:
+            for sym in symtab.iter_symbols():
+                sym_name = sym.name
+                if sym_name == '':
+                    continue
+                virtual_address = sym.entry.st_value
+                size = sym.entry.st_size
                 file_offset = self.address_to_offset(virtual_address)
-                data = self.data[file_offset : file_offset + size]
+                if file_offset is not None:
+                    data = self.data[file_offset : file_offset + size]
+                else: data = ''
+                symbols.append(Symbol(sym_name, virtual_address, size, file_offset, data))
+        if dynsym is not None:
+            for sym in dynsym.iter_symbols():
+                sym_name = sym.name
+                if sym_name == '':
+                    continue
+                virtual_address = 0
+                for reloc in rela_plt.iter_relocations():
+                    if dynsym.get_symbol(reloc['r_info_sym']).name == sym_name:
+                        function_plt_pointer = self.address_to_offset(reloc['r_offset'])
+                        is_little_endian = self._elffile.little_endian
+                        is_64_bit = self.arch.__dict__.get('is_64_bit', False)
+                        address_data = self.data[function_plt_pointer:function_plt_pointer + 8]
+                        virtual_address = converter.parse_address(address_data, is_64_bit, is_little_endian) - 6
+                #get the real virtual address
+                size = sym.entry.st_size
+                file_offset = self.address_to_offset(virtual_address)
+                if file_offset is not None:
+                    data = self.data[file_offset : file_offset + size]
+                else:
+                    data = ''
                 symbols.append(Symbol(sym_name, virtual_address, size, file_offset, data))
         return symbols
 

@@ -1,5 +1,5 @@
-symbols = {'puts' : 0x400410,}
+symbols = {'puts' : 'puts',}
 
 hook_sections = {'.text' : 0x200000,
-                 'hook_run_sh' : 0x400540,
-                 '.data' : 0x400600,}
+                 'hook_run_sh' : 'nothing',
+                 '.data' : ('nothing', 0xc0),}

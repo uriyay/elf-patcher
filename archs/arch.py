@@ -24,6 +24,7 @@ class Arch(object):
         self.linker_name = binutils_prefix + 'ld'
         self.objdump_name = binutils_prefix + 'objdump'
         self.nm_name = binutils_prefix + 'nm'
+        self.readelf_name = binutils_prefix + 'readelf'
 
     def assemble(self,code, address=None,
             preserve_output=False, lds_config=None):

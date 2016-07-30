@@ -1,3 +1,5 @@
+import struct
+
 def to_unsigned(signed, bits_number):
     temp = signed + 2**bits_number
     return temp & (2**bits_number - 1)
@@ -26,3 +28,7 @@ def to_signed_short(unsigned_short):
 def to_signed_byte(unsigned_byte):
     return to_signed(unsigned_byte, 8)
 
+def parse_address(data, is_64_bit=False, is_little_endian=True):
+    format_str = '%s%s' % ('<' if is_little_endian else '>',
+                           'Q' if is_64_bit else 'I')
+    return struct.unpack(format_str, data)[0]

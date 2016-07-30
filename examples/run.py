@@ -4,7 +4,9 @@ import os
 import sys
 import imp
 import glob
+import pickle
 import argparse
+import tempfile
 import platform
 import subprocess
 
@@ -15,10 +17,22 @@ import patcher
 from archs import arch_x86, arch_arm, arch_mips
 
 ARCHS = {
-            'x86' : arch_x86.Arch(is_64_bit=False),
-            'x86_64' : arch_x86.Arch(is_64_bit=True),
-            'arm' : arch_arm.Arch(binutils_prefix='arm-none-linux-gnueabi-'),
-            'mips32el' : arch_mips.Arch(binutils_prefix='mips-sde-elf-'),
+            'x86' : {
+                    'arch_object' : arch_x86.Arch(is_64_bit=False),
+                    'compiler_args' : '-m32',
+                    },
+            'x86_64' : {
+                        'arch_object' : arch_x86.Arch(is_64_bit=True),
+                        'compiler_args' : '',
+                       },
+            'arm' : {
+                    'arch_object': arch_arm.Arch(binutils_prefix='arm-none-linux-gnueabi-'),
+                    'compiler_args' : 'CROSS_COMPILER=arm-none-linux-gnueabi-'
+                    },
+            'mips32el' : {
+                         'arch_object' : arch_mips.Arch(binutils_prefix='mips-sde-elf-'),
+                         'compiler_args' : 'CROSS_COMPILER=mips-sde-elf-',
+                         },
         }
 
 PATCHES = {
@@ -32,12 +46,12 @@ PATCHES = {
 
 TARGETS = {
             'printf' : {'filename' : os.path.join(my_dir, 'targets/printf/main'),
-                        'hook_address' : 0x4006c4,
+                        'hook_address' : 'func',
                         'hook_data_addr' : 'nothing',
                        },
             #/bin/ls ?
             'ls' : {'filename' : '/bin/ls',
-                    'hook_address' : 0x4082c1, #at print_current_files
+                    'hook_address' : 'print_current_files', #at print_current_files
                     'hook_data_addr' : 0,
                     },
           }
@@ -67,30 +81,53 @@ def get_config_from_cli():
 
     return ARCHS[args.arch], TARGETS[args.target], PATCHES[args.patch], args.output
 
+def compile(dir_path, makefile_args):
+    command = 'make -C %s %s rebuild' % (dir_path, makefile_args)
+    result = os.system(command)
+    if result != 0:
+        raise Exception("Failed to compile, command = %s, result = %d" % (command, result))
+
+
 def main():
     arch, target, patch, output_filename = get_config_from_cli()
 
     #enable tracer
     patcher.tracer.enable()
     target_filename = target['filename']
-    p = patcher.Patcher(target_filename, arch)
+    p = patcher.Patcher(target_filename, arch['arch_object'])
     patch_filename =  patch['filename']
+
+    #compile target
+    compile(os.path.dirname(target_filename), arch['compiler_args'])
+    #compile patch
+    arch_pickle_file = tempfile.NamedTemporaryFile(prefix='arch_pickle_', delete=False)
+    pickle.dump(p.arch, arch_pickle_file)
+    arch_pickle_file.close()
+    compile(os.path.dirname(patch_filename), ' '.join([arch['compiler_args'],
+                                                      'ARCH_PICKLE_FILENAME=%s' % (arch_pickle_file.name),
+                                                      'TARGET_TO_PATCH_FILENAME=%s' % (target_filename),
+                                                      ]))
+    os.unlink(arch_pickle_file.name)
 
     hook_data_addr = target['hook_data_addr']
     if type(hook_data_addr) is str:
         sym_name = hook_data_addr
         hook_data_addr = p.binary.get_symbol_by_name(hook_data_addr).virtual_address
         if hook_data_addr is None:
-            raise Exception('Cannot get address from symbol %s', sym_name)
+            raise Exception('Cannot get address from symbol %s' % (sym_name))
 
     hook_glue_address = hook_data_addr + 0x100
 
     #the address to jump from in the original binary
     hook_addr = target['hook_address']
-    padding_modulu = arch.padding_modulu
+    if type(hook_addr) is str:
+        sym_name = hook_addr
+        hook_addr = p.binary.get_symbol_by_name(sym_name).virtual_address
+        if hook_addr is None:
+            raise Exception('Cannot get address from symbol %s' % (sym_name))
+
     where_to_jump = patch.get('hook_symbol_to_jump_to', None)
     patch_table = p.get_patch(hook_addr,
-                              padding_modulu,
                               hook_glue_address,
                               patch_filename,
                               patch['hook_symbols_to_paste'],

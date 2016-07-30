@@ -1,4 +1,6 @@
-CROSS_COMPILER ?= 
+CROSS_COMPILER ?= ""
+ARCH_PICKLE_FILENAME ?= 
+TARGET_TO_PATCH_FILENAME ?=
 
 CC=$(CROSS_COMPILER)gcc
 LD=$(CROSS_COMPILER)ld
@@ -15,8 +17,8 @@ CFLGAGS := $(CFLAGS)
 	$(CC) -c $^ -o $@
 
 $(TARGET): $(OBJ) $(PYSCRIPT)
-	$(eval gcc_cmd := $(shell python ../../../compile_patch.py $(PYSCRIPT) $(CROSS_COMPILER)))
-	$(gcc_cmd) $(LDFLAGS) $(OBJ) -o $(TARGET)
+	$(eval gcc_cmd := $(shell python ../../../compile_patch.py $(PYSCRIPT) $(CROSS_COMPILER) $(ARCH_PICKLE_FILENAME) $(TARGET_TO_PATCH_FILENAME) || echo failure))
+	test "$(gcc_cmd)" != failure && $(gcc_cmd) $(LDFLAGS) $(OBJ) -o $(TARGET)
 
 $(TARGET_RUNABLE): $(OBJ)
 	$(CC) $(OBJ) -o $@

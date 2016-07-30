@@ -10,7 +10,7 @@ class Arch(arch.Arch):
     def __init__(self, is_64_bit=True):
         super(Arch, self).__init__(binutils_prefix='')
         self.is_64_bit = is_64_bit
-        self.padding_modulu = 5
+        self.padding_modulu = 1
         if is_64_bit:
             self.stack_pointer = 'rsp'
             self.base_pointer = 'rbp'
