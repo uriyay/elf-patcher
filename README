@@ -19,13 +19,14 @@ arch class should define these things:
 -binutils_prefix - prefix to binutils tools (like '' for the default binutils and '/opt/arm-linux/bin/arm-linux-gnueabi-' for arm)
 -get_branch(), get_nop(), get_call(), get_registers_dumper(), get_registers_loader()
 
+Depends
+-------
+In order to run this tool you will need these things:
+-pyelftools:
+    in order to parse elf files.
+    installation: pip install pyelftools
+
 Problems
 ---------
 Currently there is no support in:
 1. calls and jumps instructions relocations, that means you cannot hook calls and jumps
-2. patcher.py:pad_nops() will pad only with one byte nop
-3. examples/patches/run_sh fails to compile
-
-Future Goals
--------------
-1. Using elffie library will make it possible to create new abilites like extending .text section
