@@ -5,7 +5,7 @@ def to_unsigned(signed, bits_number):
     return temp & (2**bits_number - 1)
 
 def to_signed(unsigned, bits_number):
-    if unsigned & ((1 << bits_number) - 1):
+    if unsigned & (1 << (bits_number - 1)):
         #its negative number
         return unsigned - (2**bits_number)
     return unsigned
